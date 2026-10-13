@@ -15,19 +15,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: pip install -r requirements.txt
-      - name: Check OLX about every minute (4 cycles per job)
+        with:
+          python-version: "3.12"
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Check OLX (4 cycles per job)
         run: |
+          set +e
           git config user.name "olx-bot"
           git config user.email "bot@users.noreply.github.com"
           for i in 1 2 3 4; do
-            python scraper.py || true
+            echo "=== cycle $i at $(date -u +%H:%M:%S) ==="
+            python scraper.py
+            echo "scraper exit code: $?"
             git add docs/data.json
             if ! git diff --staged --quiet; then
+              echo "data changed, committing"
               git commit -qm "update $(date -u +%H:%M)"
-              git pull --rebase -q || true
-              git push -q || true
+              git pull --rebase -q
+              git push -q
+              echo "push exit code: $?"
+            else
+              echo "no data changes"
             fi
-            [ "$i" -lt 4 ] && sleep 20
+            if [ "$i" -lt 4 ]; then sleep 20; fi
           done
+          exit 0
