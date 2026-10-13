@@ -1,0 +1,38 @@
+{
+  "ntfy_topic": "CHANGE-ME-olx-your-secret-name-4821",
+  "site_url": "https://wikachmo1337-ai.github.io/olx-monitor/",
+  "min_title_words": 2,
+  "max_notifications_per_run": 8,
+  "exclude_title": ["чохол", "чехол", "скло", "стекло", "кейс", "case", "копія", "копия", "муляж", "зарядк", "кабель", "ремінець", "ремешок", "плівк", "пленк"],
+  "exclude_text": ["розбит", "разбит", "на запчастини", "на запчасти", "під ремонт", "под ремонт", "не вмикається", "не включается", "icloud lock", "заблокован", "блок icloud", "айклауд", "id lock", "залитий", "залит", "битий", "бітий", "не працює", "не работает"],
+  "categories": {
+    "iphone": {
+      "label": "iPhone",
+      "queries": ["iphone", "айфон"],
+      "markers": ["\\b(iphone|айфон)\\w*"],
+      "max_price": null
+    },
+    "pixel": {
+      "label": "Pixel",
+      "queries": ["pixel", "пиксель", "піксель"],
+      "markers": ["\\b(pixel|пиксел|піксел)\\w*"],
+      "max_price": null
+    },
+    "samsung": {
+      "label": "Samsung S",
+      "queries": ["samsung galaxy s", "самсунг galaxy s", "samsung s"],
+      "markers": [
+        "\\b(samsung|самсун|самсон)\\w*\\W+(galaxy\\W+|галакс\\w*\\W+)?[sс]\\s?\\d{2}\\b",
+        "\\b(galaxy|галакс\\w*)\\W+[sс]\\s?\\d{2}\\b",
+        "\\b(samsung|самсун|самсон)\\w*\\W+[sс]\\b"
+      ],
+      "max_price": null
+    },
+    "macbook": {
+      "label": "MacBook",
+      "queries": ["macbook", "макбук"],
+      "markers": ["\\b(macbook|макбук)\\w*"],
+      "max_price": null
+    }
+  }
+}

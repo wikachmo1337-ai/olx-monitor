@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111827">
+<title>OLX Monitor</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--tx:#111827;--mu:#6b7280;--ac:#2563eb;--bd:#e5e7eb}
+@media(prefers-color-scheme:dark){:root{--bg:#0b0f17;--card:#151b27;--tx:#e5e7eb;--mu:#9ca3af;--ac:#60a5fa;--bd:#263042}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+header{position:sticky;top:0;background:var(--bg);padding:12px 14px;border-bottom:1px solid var(--bd);z-index:2}
+h1{font-size:18px;margin:0 0 6px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.chip{border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:6px 12px;border-radius:99px;cursor:pointer}
+.chip.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+input{padding:8px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx);flex:1;min-width:120px}
+main{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;overflow:hidden}
+.card img{width:100%;height:170px;object-fit:cover;background:var(--bd)}
+.card div.body{padding:10px 12px}
+.price{font-weight:700;font-size:17px}
+.ttl{display:block;font-weight:600;color:var(--tx);text-decoration:none;margin:4px 0}
+.ttl:hover{color:var(--ac);text-decoration:underline}
+.mu{color:var(--mu);font-size:13px}.tag{color:var(--mu);font-size:12px;margin-top:2px}
+.btn{display:inline-block;margin-top:6px;color:var(--ac);font-size:13px;text-decoration:none}
+.new{color:#16a34a;font-weight:600}.warn{color:#dc2626}
+</style></head><body>
+<header>
+<h1>📱 OLX Monitor</h1>
+<div class="mu" id="status">загрузка…</div>
+<div class="row" id="cats"></div>
+<div class="row">
+<input type="text" id="q" placeholder="Поиск по заголовку">
+<input type="text" id="ex" placeholder="Исключить слова (через запятую)">
+<input type="number" id="max" placeholder="Макс. цена, грн">
+</div></header>
+<main id="list"></main>
+<script>
+const CATS={iphone:"iPhone",pixel:"Pixel",samsung:"Samsung S",macbook:"MacBook"};
+let data=[],sel=new Set(Object.keys(CATS)),S={};
+try{S=JSON.parse(localStorage.getItem("olx")||"{}")}catch(e){}
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hhmm=t=>t?new Date(t).toLocaleTimeString("ru-RU"):"—";
+$("q").value=S.q||"";$("ex").value=S.ex||"";$("max").value=S.max||"";
+function save(){try{localStorage.setItem("olx",JSON.stringify({q:$("q").value,ex:$("ex").value,max:$("max").value}))}catch(e){}}
+function chips(){$("cats").innerHTML="";for(const k in CATS){const b=document.createElement("button");b.className="chip"+(sel.has(k)?" on":"");b.textContent=CATS[k];b.onclick=()=>{sel.has(k)?sel.delete(k):sel.add(k);chips();render()};$("cats").append(b)}}
+function render(){
+  save();
+  const q=$("q").value.toLowerCase().trim();
+  const ex=$("ex").value.toLowerCase().split(",").map(s=>s.trim()).filter(Boolean);
+  const mx=+$("max").value||Infinity;
+  const twoHoursAgo=Date.now()-2*3600e3;
+  const items=data.filter(i=>sel.has(i.cat)&&(!q||i.title.toLowerCase().includes(q))&&!ex.some(w=>(i.title+" "+i.desc).toLowerCase().includes(w))&&(i.price==null||i.price<=mx));
+  $("list").innerHTML=items.map(i=>{
+    const isNew=new Date(i.created)>twoHoursAgo;
+    return `<div class="card">
+      ${i.photo?`<img loading="lazy" src="${esc(i.photo)}" alt="">`:""}
+      <div class="body">
+        <div class="price">${i.price==null?"цена не указана":esc(i.price)+" "+esc(i.currency)}</div>
+        <a class="ttl" href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>
+        <div class="mu">${esc(i.city)} · ${new Date(i.created).toLocaleString("ru-RU")} ${isNew?'<span class="new">NEW</span>':""}</div>
+        <div class="tag">найдено по слову: ${esc(i.matched||"")}</div>
+        <a class="btn" href="${esc(i.url)}" target="_blank" rel="noopener">Открыть объявление →</a>
+      </div></div>`;
+  }).join("")||"<p class='mu' style='padding:14px'>Пока ничего не найдено.</p>";
+}
+["q","ex","max"].forEach(id=>$(id).oninput=render);
+function load(){
+  fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
+    data=d.items||[];
+    let s=`проверено: ${hhmm(d.checked)} · последнее новое объявление: ${hhmm(d.last_new)}`;
+    if(d.requests_failed) s+=` · <span class="warn">ошибок запросов к OLX: ${d.requests_failed}</span>`;
+    $("status").innerHTML=s;
+    render();
+  }).catch(()=>{$("status").textContent="data.json пока не найден — запустите workflow один раз";});
+}
+chips();load();setInterval(load,30000);
+</script></body></html>

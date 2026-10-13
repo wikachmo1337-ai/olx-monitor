@@ -1,0 +1,143 @@
+import json, os, re, sys, time
+from datetime import datetime, timezone
+import requests
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+CFG = json.load(open(os.path.join(ROOT, "config.json"), encoding="utf-8"))
+DATA_PATH = os.path.join(ROOT, "docs", "data.json")
+API = "https://www.olx.ua/api/v1/offers/"
+HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+           "Accept": "application/json", "Accept-Language": "uk-UA,uk;q=0.9"}
+MAX_STORED = 600
+RE_FLAGS = re.IGNORECASE | re.UNICODE
+RATES = {"USD": 41.5, "EUR": 48}
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def load_previous():
+    if not os.path.exists(DATA_PATH):
+        return None
+    try:
+        return json.load(open(DATA_PATH, encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def fetch(query):
+    params = {"offset": 0, "limit": 40, "query": query, "sort_by": "created_at:desc"}
+    r = requests.get(API, params=params, headers=HEADERS, timeout=30)
+    r.raise_for_status()
+    return r.json().get("data", [])
+
+
+def parse(o, cat):
+    price, cur = None, "UAH"
+    for p in o.get("params", []):
+        if p.get("key") == "price":
+            v = p.get("value") or {}
+            price = v.get("value")
+            cur = v.get("currency", "UAH")
+    photo = ""
+    if o.get("photos"):
+        photo = o["photos"][0]["link"].replace("{width}", "400").replace("{height}", "300")
+    loc = o.get("location") or {}
+    return {
+        "id": str(o["id"]), "cat": cat, "title": o.get("title", ""), "url": o.get("url", ""),
+        "price": price, "currency": cur, "photo": photo,
+        "city": (loc.get("city") or {}).get("name", ""),
+        "created": o.get("created_time", ""),
+        "desc": re.sub(r"<[^>]+>", " ", o.get("description", ""))[:600],
+    }
+
+
+def matches(item, c, patterns):
+    """Return the matched marker word if the ad qualifies, otherwise None."""
+    title = item["title"]
+    text = title + " " + item["desc"]
+    if any(w in title.lower() for w in CFG["exclude_title"]):
+        return None
+    if any(w in text.lower() for w in CFG["exclude_text"]):
+        return None
+    # the ad must not be just the marker word: title needs at least N words
+    if len(re.findall(r"\w+", title)) < CFG["min_title_words"]:
+        return None
+    marker = None
+    for rx in patterns:
+        m = rx.search(text)
+        if m:
+            marker = m.group(0)
+            break
+    if not marker:
+        return None
+    if c.get("max_price") is not None:
+        if item["price"] is None:
+            return None
+        price = item["price"] * RATES.get(item["currency"], 1)
+        if price > c["max_price"]:
+            return None
+    return marker
+
+
+def notify(items):
+    topic = CFG["ntfy_topic"]
+    if not topic or topic.startswith("CHANGE-ME"):
+        print("ntfy topic not set, skipping push")
+        return
+    for it in items:
+        price = f'{it["price"]} {it["currency"]}' if it["price"] is not None else "цена не указана"
+        requests.post("https://ntfy.sh", json={
+            "topic": topic,
+            "title": f'{CFG["categories"][it["cat"]]["label"]}: {price}',
+            "message": f'{it["title"]}\n{it["city"]}\n{it["url"]}',
+            "click": it["url"], "tags": ["iphone"], "priority": 4,
+            **({"attach": it["photo"]} if it["photo"] else {}),
+        }, timeout=20)
+
+
+def main():
+    prev = load_previous()
+    first_run = prev is None
+    stored = prev.get("items", []) if prev else []
+    last_new = prev.get("last_new") if prev else None
+    seen = {i["id"] for i in stored}
+    compiled = {cat: [re.compile(p, RE_FLAGS) for p in c["markers"]]
+                for cat, c in CFG["categories"].items()}
+
+    new, ok_requests, failed = [], 0, 0
+    for cat, c in CFG["categories"].items():
+        for q in c["queries"]:
+            try:
+                offers = fetch(q)
+                ok_requests += 1
+                print(f"[{cat}] '{q}': {len(offers)} offers")
+                for o in offers:
+                    it = parse(o, cat)
+                    if it["id"] in seen:
+                        continue
+                    marker = matches(it, c, compiled[cat])
+                    if marker:
+                        it["matched"] = marker
+                        seen.add(it["id"])
+                        new.append(it)
+            except Exception as e:
+                failed += 1
+                print(f"[{cat}/{q}] error: {e}", file=sys.stderr)
+            time.sleep(1)
+
+    new.sort(key=lambda x: x["created"], reverse=True)
+    items = (new + stored)[:MAX_STORED]
+    if new:
+        last_new = now_iso()
+    json.dump({"checked": now_iso(), "last_new": last_new,
+               "requests_ok": ok_requests, "requests_failed": failed, "items": items},
+              open(DATA_PATH, "w", encoding="utf-8"), ensure_ascii=False)
+    print(f"new: {len(new)}, ok requests: {ok_requests}, failed: {failed}")
+    if new and not first_run:
+        notify(new[:CFG["max_notifications_per_run"]])
+
+
+if __name__ == "__main__":
+    main()
